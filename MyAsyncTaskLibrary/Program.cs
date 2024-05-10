@@ -67,7 +67,11 @@ static class MyThreadPool
                         throw new InvalidOperationException("Queue is empty");
                     }
 
-                    ExecutionContext.Restore(actionAndContext.executionContext!);
+                    if (actionAndContext.executionContext != null)
+                    {
+                        ExecutionContext.Restore(actionAndContext.executionContext);
+                    }
+
                     actionAndContext.callback();
                 }
             }).Start();
