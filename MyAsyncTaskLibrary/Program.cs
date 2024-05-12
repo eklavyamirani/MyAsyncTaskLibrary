@@ -34,16 +34,18 @@ class Program
         // }
 
         AsyncLocal<int> asyncLocal = new();
+        var tasks = new MyAsyncTask[40];
         for(int i = 0; i < 40; i++)
         {
             asyncLocal.Value = i;
-            var task = new MyAsyncTask(() => 
+            tasks[i] = new MyAsyncTask(() => 
             {
                 Thread.Sleep(500);
                 Console.WriteLine(asyncLocal.Value);
             });
-            task.Wait();
         }
+
+        MyAsyncTask.WaitAll([.. tasks]).Wait();
         
         Console.WriteLine("End");
         Console.ReadLine();
@@ -100,6 +102,19 @@ class MyAsyncTask
     private ConcurrentBag<Action<MyAsyncTask>>? _continuations;
 
     private ManualResetEvent? _resetEvent;
+
+    public static MyAsyncTask WaitAll(params MyAsyncTask[] tasks)
+    {
+        var task = new MyAsyncTask(() => 
+        {
+            foreach (var t in tasks)
+            {
+                t.Wait();
+            }
+        });
+
+        return task;
+    }
 
     public MyAsyncTask(Action action)
     {
