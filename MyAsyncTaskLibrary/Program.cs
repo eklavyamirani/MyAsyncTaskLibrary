@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace MyAsyncTaskLibrary;
 
@@ -19,17 +20,31 @@ class Program
             }
         */
 
+        // using MyThreadPool but no tasks
+        // Console.WriteLine("using MyThreadPool but no tasks");
+        // AsyncLocal<int> asyncLocal = new();
+        // for(int i = 0; i < 40; i++)
+        // {
+        //     asyncLocal.Value = i;
+        //     MyThreadPool.QueueUserWorkItem(() => 
+        //     {
+        //         Thread.Sleep(500);
+        //         Console.WriteLine(asyncLocal.Value);
+        //     });
+        // }
+
         AsyncLocal<int> asyncLocal = new();
         for(int i = 0; i < 40; i++)
         {
             asyncLocal.Value = i;
-            MyThreadPool.QueueUserWorkItem(() => 
+            var task = new MyAsyncTask(() => 
             {
                 Thread.Sleep(500);
                 Console.WriteLine(asyncLocal.Value);
             });
+            task.Wait();
         }
-
+        
         Console.WriteLine("End");
         Console.ReadLine();
     }
@@ -43,7 +58,6 @@ static class MyThreadPool
 
     static MyThreadPool()
     {
-        // TODO: implement maxThreads
         Run();
     }
 
@@ -81,4 +95,65 @@ static class MyThreadPool
 
 class MyAsyncTask
 {
+    public bool IsCompleted { get; private set; } = false;
+    public Exception? FaultException { get; private set; }
+    private ConcurrentBag<Action<MyAsyncTask>>? _continuations;
+
+    private ManualResetEvent? _resetEvent;
+
+    public MyAsyncTask(Action action)
+    {
+        MyThreadPool.QueueUserWorkItem(() => 
+        {
+            try
+            {
+                action();
+                SetCompleted();
+            }
+            catch (Exception ex)
+            {
+                SetFaulted(ex);
+            }
+        });
+    }
+
+    public void SetCompleted()
+    {
+        IsCompleted = true;
+        if (_continuations != null)
+        {
+            foreach (var continuation in _continuations)
+            {
+                MyThreadPool.QueueUserWorkItem(() =>
+                {
+                    continuation(this);
+                });
+            }
+        }
+    }
+
+    public void SetFaulted(Exception exception)
+    {
+        IsCompleted = true;
+        FaultException = exception;
+    }
+
+    public void Wait()
+    {
+        if (!IsCompleted)
+        {
+            Debug.Assert(_resetEvent == null);
+            _resetEvent = new (false);
+            this.ContinueWith(task => _resetEvent.Set());
+            _resetEvent.WaitOne();
+        }
+
+        return;
+    }
+
+    public void ContinueWith(Action<MyAsyncTask> action)
+    {
+        Interlocked.CompareExchange(ref _continuations, new ConcurrentBag<Action<MyAsyncTask>>(), null);
+        _continuations.Add(action);
+    }
 }
