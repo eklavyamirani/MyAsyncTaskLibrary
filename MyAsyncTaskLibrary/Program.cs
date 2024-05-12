@@ -105,15 +105,22 @@ class MyAsyncTask
 
     public static MyAsyncTask WaitAll(params MyAsyncTask[] tasks)
     {
-        var task = new MyAsyncTask(() => 
+        // we want to block execution until all the tasks are done.
+        // each task will signal the semaphore when it is done.
+        var resetEvent = new ManualResetEvent(initialState: false);
+        var remainingTasks = tasks.Length;
+        foreach (var task in tasks)
         {
-            foreach (var t in tasks)
+            task.ContinueWith(t => 
             {
-                t.Wait();
-            }
-        });
+                if (Interlocked.Decrement(ref remainingTasks) == 0)
+                {
+                    resetEvent.Set();
+                }
+            });
+        }
 
-        return task;
+        return new MyAsyncTask(() => resetEvent.WaitOne());
     }
 
     public MyAsyncTask(Action action)
